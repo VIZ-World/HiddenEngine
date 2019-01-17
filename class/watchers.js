@@ -26,7 +26,6 @@ function searchCache(moduleName, callback){
 function rerequire(moduleName,callback){
 	purgeCache(moduleName);
 	return require(moduleName);
-	callback();
 }
 var api_http_gates=['https://rpc.viz.lexai.host/','https://solox.world/','https://rpc.viz.ropox.tools/'];
 var api_gates=api_http_gates;
