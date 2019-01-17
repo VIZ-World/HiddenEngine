@@ -48,59 +48,32 @@ module.exports=class he_module{
 			if(_this.session.auth){
 				if(typeof _this._GET.action !== 'undefined'){
 					if('stop'==_this._GET.action){
-						if('steem'==_this._GET.id){
-							global.he.watch_manager.steem=0;
-						}
-						if('golos'==_this._GET.id){
-							global.he.watch_manager.golos=0;
-						}
+						global.he.watch_manager.queue=0;
 					}
 					if('restart'==_this._GET.action){
-						if('steem'==_this._GET.id){
-							global.he.watch_manager.steem=1;
-						}
-						if('golos'==_this._GET.id){
-							global.he.watch_manager.golos=1;
-						}
+						global.he.watch_manager.queue=1;
 					}
 					if('continue'==_this._GET.action){
-						if('steem'==_this._GET.id){
-							global.he.watch_manager.steem=2;
-						}
-						if('golos'==_this._GET.id){
-							global.he.watch_manager.golos=2;
-						}
+						global.he.watch_manager.queue=2;
 					}
 					_this.session.redirect=true;
 					_this.response.redirect(302,'/watch-control/');
 				}
-				_this.content+=`<h1>Watcher list</h1><ul>`;
-				_this.content+=`<li>Steem: `;
-				if(2==global.he.watch_manager.steem){
-					_this.content+=`continuing on block id: #`+global.he.steem_watch_block_id+`, refresh page later`;
+				_this.content+=`<h1>Watcher status</h1>`;
+				_this.content+=`<p>VIZ: `;
+				if(2==global.he.watch_manager.queue){
+					_this.content+=`continuing on block id: #`+global.he.watch_block_id+`, refresh page later`;
 				}
-				if(1==global.he.watch_manager.steem){
-					_this.content+=`working, block id: #`+global.he.steem_watch_block_id+`, actions: <a href="/watch-control/?action=stop&id=steem">stop</a>`;
+				if(1==global.he.watch_manager.queue){
+					_this.content+=`working, block id: #`+global.he.watch_block_id+`, actions: <a href="/watch-control/?action=stop">stop</a>`;
 				}
-				if(0==global.he.watch_manager.steem){
-					_this.content+=`stopped on block id: #`+global.he.steem_watch_block_id+`, actions: <a href="/watch-control/?action=continue&id=steem">continue</a>, <a href="/watch-control/?action=restart&id=steem">restart</a>`;
+				if(0==global.he.watch_manager.queue){
+					_this.content+=`stopped on block id: #`+global.he.watch_block_id+`, actions: <a href="/watch-control/?action=continue">continue</a>, <a href="/watch-control/?action=restart">restart</a>`;
 				}
-				_this.content+=`</li>`;
-				_this.content+=`<li>Golos: `;
-				if(2==global.he.watch_manager.golos){
-					_this.content+=`continuing on block id: #`+global.he.golos_watch_block_id+`, refresh page later`;
-				}
-				if(1==global.he.watch_manager.golos){
-					_this.content+=`working, block id: #`+global.he.golos_watch_block_id+`, actions: <a href="/watch-control/?action=stop&id=golos">stop</a>`;
-				}
-				if(0==global.he.watch_manager.golos){
-					_this.content+=`stopped on block id: #`+global.he.golos_watch_block_id+`, actions: <a href="/watch-control/?action=continue&id=golos">continue</a>, <a href="/watch-control/?action=restart&id=golos">restart</a>`;
-				}
-				_this.content+=`</li>`;
-				_this.content+=`</ul>`;
+				_this.content+=`</p>`;
 				_this.content+='<h2>History</h2>';
 				for(let i in global.he.history){
-					_this.content+='<p>'+simple_date(global.he.history[i].t)+': '+global.he.history[i].s+'</p>';
+					_this.content+='<p><span data-datestamp="'+global.he.history[i].t+'">'+simple_date(global.he.history[i].t)+'</span>: '+global.he.history[i].s+'</p>';
 				}
 			}
 			else{
