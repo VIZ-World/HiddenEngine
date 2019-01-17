@@ -33,7 +33,7 @@ module.exports=class he_module{
 					}
 					else
 					if(typeof _this._POST.add_account !== 'undefined'){
-						var m={'login':_this._POST.login,'posting_key':_this._POST.posting_key,'active_key':_this._POST.active_key,'type':parseInt(_this._POST.type)};
+						var m={'login':_this._POST.login,'posting_key':_this._POST.posting_key,'active_key':_this._POST.active_key,'api_key':_this._POST.api_key};
 						m.id=++global.he.counters.accounts;
 						global.he.accounts.push(m);
 
@@ -44,15 +44,11 @@ module.exports=class he_module{
 					if('insert'==_this._GET.action){
 						_this.content+=`<h1>Accounts list</h1>`;
 						_this.content+=`<h2>Adding new account</h2>`;
-						_this.content+=`<form action="" method="POST">
-						Blockchain:<br>
-						<select name="type">
-							<option value="1">Steem</option>
-							<option value="2" selected>Golos</option>
-						</select>
+						_this.content+=`<form action="" method="POST" autocomplete="off">
 						<br>Login:<br><input type="text" name="login" value="" autocomplete="off">
-						<br>Posting key:<br><input type="text" name="posting_key" value="" autocomplete="off">
-						<br>Active key:<br><input type="text" name="active_key" value="" autocomplete="off">
+						<br>Posting key:<br><input type="text" name="posting_key" value="">
+						<br>Active key:<br><input type="text" name="active_key" value="">
+						<br>API key:<br><input type="text" name="api_key" value="">
 						<hr><input type="submit" class="button" name="add_account" value="Submit">
 						</form>`;
 					}
@@ -61,10 +57,10 @@ module.exports=class he_module{
 						_this.content+=`<p><a class="button" href="?action=insert">Add new item</a></p>`;
 						_this.content+=`<table class="object_view"><thead><tr>
 							<th width="5%">id</th>
-							<th width="5%">Type</th>
-							<th width="15%">Login</th>
-							<th width="30%">Posting key</th>
-							<th width="30%">Active key</th>
+							<th width="20%">Login</th>
+							<th width="20%">Posting key</th>
+							<th width="20%">Active key</th>
+							<th width="20%">API key</th>
 							<th width="15%">Actions</th>
 						</tr>
 						</thead>
@@ -73,7 +69,6 @@ module.exports=class he_module{
 							_this.content+=`
 						<tr>
 							<td>${m.id}</td>
-							<td>`+(1==m.type?'STEEM':'GOLOS')+`</td>
 							<td>${m.login}</td>`;
 						if(''!=m.posting_key){
 							_this.content+=`
@@ -85,6 +80,13 @@ module.exports=class he_module{
 						if(''!=m.active_key){
 							_this.content+=`
 								<td><span class="hidden-text" data-text="${m.active_key}">hidden</span></td>`;
+						}
+						else{
+							_this.content+=`<td></td>`;
+						}
+						if(''!=m.api_key){
+							_this.content+=`
+								<td><span class="hidden-text" data-text="${m.api_key}">hidden</span></td>`;
 						}
 						else{
 							_this.content+=`<td></td>`;
