@@ -7,8 +7,6 @@ var https=require('https');
 var bodyparser=require('body-parser');
 var fs=require('fs');
 
-var steem=require('steem');
-var golos=require('golos-js');
 global.he=require('./class/global.js');
 var he_watchers=require('./class/watchers.js');
 var watchers;
@@ -187,5 +185,19 @@ var options={
 	key: fs.readFileSync(__dirname+'/ssl/ssl.key'),
 	cert: fs.readFileSync(__dirname+'/ssl/ssl.crt')
 };
-http.createServer(app).listen(80);
-https.createServer(options, app).listen(443);
+var http_server=http.createServer(app).listen(80);
+var https_server=https.createServer(options, app).listen(443);
+process.on('SIGTERM', he_shutdown);
+process.on('SIGINT', he_shutdown);
+
+function he_shutdown(){
+	console.log('Received kill signal, shutting down gracefully');
+	http_server.close(()=>{
+		console.log('HTTP server: Closed out remaining connections');
+		https_server.close(()=>{
+			console.log('HTTPS server: Closed out remaining connections');
+			watchers.process_destroy(process);
+			setTimeout(function(){console.log('Watchers: Timeout... Exit...');process.exit(0);},5000);
+		});
+	});
+}
