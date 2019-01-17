@@ -23,12 +23,19 @@ function searchCache(moduleName, callback){
 		}(mod));
 	}
 };
-function rerequire(moduleName){
+function rerequire(moduleName,callback){
 	purgeCache(moduleName);
 	return require(moduleName);
+	callback();
 }
-var steem=rerequire('steem');
-var golos=rerequire('golos-js');
+var api_http_gates=['https://rpc.viz.lexai.host/','https://solox.world/','https://rpc.viz.ropox.tools/'];
+var api_gates=api_http_gates;
+var gate=rerequire('viz-world-js');
+function random_api_gate(){
+	gate.config.set('websocket',api_gates[Math.floor(Math.random()*api_gates.length)]);
+};
+random_api_gate();
+
 module.exports=class he_watchers{
 	constructor(){
 		global.he.json_file='./global.json';
@@ -39,38 +46,85 @@ module.exports=class he_watchers{
 			stream.on('data',function(chunk){
 				global_buf+=chunk;
 			}).on('end', function(){
-				global.he=JSON.parse(global_buf);
-				global.he.json_file='./global.json';
-				global.he.history=[];
-				_this.start();
+				let parse_error=false;
+				try{
+					global.he=JSON.parse(global_buf);
+				}
+				catch(e){
+					parse_error=true;
+				}
+				if(parse_error){
+					_this.create_global_json();
+				}
+				else{
+					global.he.json_file='./global.json';
+					global.he.history=[];
+					global.he.watch_manager.save_global_lock=0;
+					_this.start();
+				}
 				this.close();
 			});
 		}
 		else{
-			global.he.steem_queue=[];
-			global.he.steem_queue.push();
-			global.he.golos_queue=[];
-			global.he.golos_queue.push();
-			global.he.accounts=[];
-			global.he.counters={};
-			global.he.history=[];
-			global.he.steem_watch_block_id=0;
-			global.he.golos_watch_block_id=0;
-			global.he.steem_watch_block_time=0;
-			global.he.golos_watch_block_time=0;
-			global.he.counters.accounts=0;
-			global.he.counters.steem_queue=0;
-			global.he.counters.golos_queue=0;
-			global.he.watch_manager={'steem':1,'golos':1,'save_global':1};
-			_this.start();
+			_this.create_global_json();
 		}
 	}
+	create_global_json(){
+		global.he.queue=[];
+		global.he.queue.push();
+		global.he.accounts=[];
+		global.he.counters={};
+		global.he.history=[];
+		global.he.watch_block_id=0;
+		global.he.watch_block_time=0;
+		global.he.counters.accounts=0;
+		global.he.counters.queue=0;
+		global.he.watch_manager={'queue':1,'save_global':1,'save_global_lock':0};
+		this.start();
+	}
 	start(){
-		this.restart_golos_watch(true);
-		this.restart_steem_watch(true);
+		this.restart_queue_watch(true);
 		this.save_global_watch();
-		this.golos_queue();
-		this.steem_queue();
+		this.queue();
+	}
+	process_destroy(process_id){
+		return new Promise(function(resolve,reject){
+			global.he.watch_manager.save_global_lock=1;
+			global.he.watch_manager.save_global=0;
+			let global_he=global.he;
+			global_he.watch_manager.save_global=0;
+			global_he.watch_manager.save_global_lock=0;
+			var stream=fs.createWriteStream(global_he.json_file,{flags:'w'});
+			stream.on('finish',function(){
+				console.log('Watchers: finished write on global.json file');
+				this.close();
+				setTimeout(function(){process_id.exit(0);},100);
+			});
+			stream.end(JSON.stringify(global_he));
+		});
+	}
+	save_global_watch(){
+		var _this=this;
+		if(0==global.he.watch_manager.save_global_lock){
+			if(1==global.he.watch_manager.save_global){
+				let global_he=global.he;
+				global_he.watch_manager.save_global=0;
+				global_he.watch_manager.save_global_lock=0;
+				global.he.watch_manager.save_global_lock=1;
+				var stream=fs.createWriteStream(global_he.json_file,{flags:'w'});
+				stream.on('finish',function(){
+					global.he.watch_manager.save_global_lock=0;
+					this.close();
+				});
+				stream.end(JSON.stringify(global_he));
+			}
+		}
+		var stream_backup=fs.createWriteStream(global.he.json_file+'.backup',{flags:'w'});
+		stream_backup.on('finish',function(){
+			this.close();
+		});
+		stream_backup.end(JSON.stringify(global.he));
+		setTimeout(function(){_this.save_global_watch()},30000);
 	}
 	add_history(str){
 		let arr={};
@@ -78,135 +132,75 @@ module.exports=class he_watchers{
 		arr.s=str;
 		global.he.history.push(arr);
 	}
-	restart_golos_watch(wait){
+	restart_queue_watch(wait){
 		var _this=this;
 		if(wait){
-			if(0==global.he.watch_manager.golos){
-				setTimeout(function(){_this.restart_golos_watch(wait)},5000);
+			if(0==global.he.watch_manager.queue){
+				setTimeout(function(){_this.restart_queue_watch(wait)},5000);
 			}
-			if(1==global.he.watch_manager.golos){
-				setTimeout(function(){_this.restart_golos_watch(false)},1000);
-				setTimeout(function(){_this.golos_watch()},2000);
+			if(1==global.he.watch_manager.queue){
+				setTimeout(function(){_this.restart_queue_watch(false)},1000);
+				setTimeout(function(){_this.queue_watch()},2000);
 			}
-			if(2==global.he.watch_manager.golos){
-				setTimeout(function(){_this.restart_golos_watch(false)},1000);
+			if(2==global.he.watch_manager.queue){
+				setTimeout(function(){_this.restart_queue_watch(false)},1000);
 			}
 		}
 		else{
-			if(0==global.he.watch_manager.golos){
-				golos.api.getDynamicGlobalProperties(function(err,result) {
+			if(0==global.he.watch_manager.queue){
+				gate.api.getDynamicGlobalProperties(function(err,result) {
 					if(!err){
-						global.he.golos_watch_block_id=result.head_block_number;
-						global.he.watch_manager.golos=1;
-						let str='Starting Golos Watch... on block: #'+global.he.golos_watch_block_id;
+						global.he.watch_block_id=result.head_block_number;
+						global.he.watch_manager.queue=1;
+						let str='Starting VIZ Watch... on block: #'+global.he.watch_block_id;
 						_this.add_history(str);
 						console.log(str);
-						setTimeout(function(){_this.golos_watch()},1000);
+						setTimeout(function(){_this.queue_watch()},1000);
 					}
 				});
 			}
-			if(1==global.he.watch_manager.golos){
-				golos.api.getDynamicGlobalProperties(function(err,result) {
+			if(1==global.he.watch_manager.queue){
+				gate.api.getDynamicGlobalProperties(function(err,result) {
 					if(!err){
-						global.he.golos_watch_block_id=result.head_block_number;
-						let str='Restarting Golos Watch... on block: #'+global.he.golos_watch_block_id;
+						global.he.watch_block_id=result.head_block_number;
+						let str='Restarting VIZ Watch... on block: #'+global.he.watch_block_id;
 						_this.add_history(str);
 						console.log(str);
 					}
 				});
 			}
-			if(2==global.he.watch_manager.golos){
-				global.he.watch_manager.golos=1;
-				if(0==global.he.golos_watch_block_id){
-					global.he.golos_watch_block_id=1;
+			if(2==global.he.watch_manager.queue){
+				global.he.watch_manager.queue=1;
+				if(0==global.he.watch_block_id){
+					global.he.watch_block_id=1;
 				}
-				let str='Continue Golos Watch... on block: #'+global.he.golos_watch_block_id;
+				let str='Continue VIZ Watch... on block: #'+global.he.watch_block_id;
 				_this.add_history(str);
 				console.log(str);
-				setTimeout(function(){_this.golos_watch()},1000);
+				setTimeout(function(){_this.queue_watch()},1000);
 			}
 		}
 	}
-	restart_steem_watch(wait){
-		var _this=this;
-		if(wait){
-			if(0==global.he.watch_manager.steem){
-				setTimeout(function(){_this.restart_steem_watch(wait)},5000);
-			}
-			if(1==global.he.watch_manager.steem){
-				setTimeout(function(){_this.restart_steem_watch(false)},1000);
-				setTimeout(function(){_this.steem_watch()},2000);
-			}
-			if(2==global.he.watch_manager.steem){
-				setTimeout(function(){_this.restart_steem_watch(false)},1000);
-			}
-		}
-		else{
-			if(0==global.he.watch_manager.steem){
-				steem.api.getDynamicGlobalProperties(function(err,result) {
-					if(!err){
-						global.he.steem_watch_block_id=result.head_block_number;
-						global.he.watch_manager.steem=1;
-						let str='Starting Steem Watch... on block: #'+global.he.steem_watch_block_id;
-						_this.add_history(str);
-						console.log(str);
-						setTimeout(function(){_this.steem_watch()},1000);
-					}
-				});
-			}
-			if(1==global.he.watch_manager.steem){
-				steem.api.getDynamicGlobalProperties(function(err,result) {
-					if(!err){
-						global.he.steem_watch_block_id=result.head_block_number;
-						let str='Restarting Steem Watch... on block: #'+global.he.steem_watch_block_id;
-						_this.add_history(str);
-						console.log(str);
-					}
-				});
-			}
-			if(2==global.he.watch_manager.steem){
-				global.he.watch_manager.steem=1;
-				if(0==global.he.steem_watch_block_id){
-					global.he.steem_watch_block_id=1;
-				}
-				let str='Continue Steem Watch... on block: #'+global.he.steem_watch_block_id;
-				_this.add_history(str);
-				console.log(str);
-				setTimeout(function(){_this.steem_watch()},1000);
-			}
-		}
-	}
-	save_global_watch(){
-		var _this=this;
-		if(1==global.he.watch_manager.save_global){
-			var stream=fs.createWriteStream(global.he.json_file,{flags:'w'});
-			stream.write(JSON.stringify(global.he));
-			stream.on('finish',function(){
-				global.he.watch_manager.save_global=0;
-				this.close();
-			});
-		}
-		setTimeout(function(){_this.save_global_watch()},30000);
-	}
-	golos_watch(){
-		if(1!=global.he.watch_manager.golos){
-			let str='Stopping Golos Watch... on block: #'+global.he.golos_watch_block_id;
+	queue_watch(){
+		if(1!=global.he.watch_manager.queue){
+			let str='Stopping VIZ Watch... on block: #'+global.he.watch_block_id;
 			this.add_history(str);
 			console.log(str);
-			this.restart_golos_watch(true);
+			this.restart_queue_watch(true);
 		}
-		if(1==global.he.watch_manager.golos){
-			if((global.he.golos_watch_block_time+60000)<new Date().getTime()){//60 sec delay, need reconnect
-				let str='RESTARTING Golos Watch... delayed on block: #'+global.he.golos_watch_block_id;
+		if(1==global.he.watch_manager.queue){
+			if((global.he.watch_block_time+60000)<new Date().getTime()){//60 sec delay, need reconnect
+				let str='RESTARTING VIZ Watch... delayed on block: #'+global.he.watch_block_id;
 				this.add_history(str);
 				console.log(str);
-				golos=rerequire('golos-js');
+				gate=rerequire('viz-world-js');
+				random_api_gate();
 			}
 			var _this=this;
-			golos.api.getBlock(global.he.golos_watch_block_id,function(err,result){
+			gate.api.getBlock(global.he.watch_block_id,function(err,result){
 				if(null!=result){
-					global.he.golos_watch_block_time=new Date().getTime();
-					console.log('Golos Watch: fetching block #'+global.he.golos_watch_block_id);
+					global.he.watch_block_time=new Date().getTime();
+					console.log('VIZ Watch: fetching block #'+global.he.watch_block_id);
 					for(var i in result.transactions){
 						for(var j in result.transactions[i].operations){
 							var op_name=result.transactions[i].operations[j][0];
@@ -220,8 +214,8 @@ module.exports=class he_watchers{
 												if((typeof account.upvote_circle !== 'undefined')&&(1==account.upvote_circle)){
 													if(typeof account.posting_key !== 'undefined'){
 														var queue_item={'action':'vote','data':{'user_login':account.login,'user_posting_key':account.posting_key,'target_login':op_data.author,'target_permlink':op_data.permlink,'vote_weight':10000}};
-														queue_item.id=++global.he.counters.golos_queue;
-														global.he.golos_queue.push(queue_item);
+														queue_item.id=++global.he.counters.queue;
+														global.he.queue.push(queue_item);
 													}
 												}
 											}
@@ -231,10 +225,10 @@ module.exports=class he_watchers{
 							}
 						}
 					}
-					global.he.golos_watch_block_id=global.he.golos_watch_block_id+1;
+					global.he.watch_block_id=global.he.watch_block_id+1;
 				}
 			});
-			setTimeout(function(){_this.golos_watch()},1000);
+			setTimeout(function(){_this.queue_watch()},1000);
 		}
 	}
 	look_in_accounts(login,type){
@@ -248,179 +242,105 @@ module.exports=class he_watchers{
 		}
 		return found;
 	}
-	steem_watch(){
-		if(1!=global.he.watch_manager.steem){
-			let str='Stopping Steem Watch... on block: #'+global.he.steem_watch_block_id;
-			this.add_history(str);
-			console.log(str);
-			this.restart_steem_watch(true);
-		}
-		if(1==global.he.watch_manager.steem){
-			if((global.he.steem_watch_block_time+60000)<new Date().getTime()){//60 sec delay, need reconnect
-				let str='RESTARTING Steem Watch... delayed on block: #'+global.he.steem_watch_block_id;
-				this.add_history(str);
-				console.log(str);
-				steem=rerequire('steem');
-			}
-			var _this=this;
-			steem.api.getBlock(global.he.steem_watch_block_id,function(err,result){
-				if(null!=result){
-					global.he.steem_watch_block_time=new Date().getTime();
-					console.log('Steem Watch: fetching block #'+global.he.steem_watch_block_id);
-					for(var i in result.transactions){
-						for(var j in result.transactions[i].operations){
-							var op_name=result.transactions[i].operations[j][0];
-							var op_data=result.transactions[i].operations[j][1];
-							if('comment'==op_name){
-								if(''==op_data.parent_author){
-									if(_this.look_in_accounts(op_data.author,1)){
-										console.log('Found new post by @'+op_data.author+', apply upvote circle...');
-										for(var account of global.he.accounts){
-											if(1==account.type){
-												if((typeof account.upvote_circle !== 'undefined')&&(1==account.upvote_circle)){
-													if(typeof account.posting_key !== 'undefined'){
-														var queue_item={'action':'vote','data':{'user_login':account.login,'user_posting_key':account.posting_key,'target_login':op_data.author,'target_permlink':op_data.permlink,'vote_weight':10000}};
-														queue_item.id=++global.he.counters.steem_queue;
-														global.he.steem_queue.push(queue_item);
-													}
-												}
-											}
-										}
-									}
-								}
-							}
-						}
-					}
-					global.he.steem_watch_block_id=global.he.steem_watch_block_id+1;
-				}
-			});
-			setTimeout(function(){_this.steem_watch()},1000);
-		}
-	}
-
 	/*
 	queue struct:
 	id
-	action=vote,flag,witness_vote,witness_unvote
+	action=vote,flag,comment,witness_vote,witness_unvote
+	vote
 	data{
 		user_login
-		user_posting_key
-		user_active_key
+		user_posting_key/user_active_key
+
 		target_login
 		target_permlink
 		vote_weight=10000
 		flag_weight=10000
+
+		parent_author
+		parent_permlink
+		permlink
+		title
+		text
+		json
 	}
 	*/
-	golos_queue_remove(i){
-		global.he.golos_queue.splice(i,1);
+	queue_remove(i){
+		global.he.queue.splice(i,1);
 	}
-	golos_queue(){
+	queue_resolve_error(i,err){
+		let message='Error in queue #'+i;
+		if(typeof err.cause !== 'undefined'){
+			if(typeof err.cause.payload !== 'undefined'){
+				if(typeof err.cause.payload.error.message !== 'undefined'){
+					message=message+': '+err.cause.payload.error.message;
+				}
+			}
+		}
+		if(message.indexOf('You may only comment once every') !=-1){
+			global.he.queue[i].time=new Date().getTime()+10000;
+			global.he.queue[i].times=1;
+			console.log('Delay comment in queue #'+i);
+		}
+		else if(message.indexOf('You may only post once every') !=-1){
+			global.he.queue[i].time=new Date().getTime()+30000;
+			global.he.queue[i].times=1;
+			console.log('Delay post in queue #'+i);
+		}
+		else if(message.indexOf('You have already voted in a similar way') !=-1){
+			this.queue_remove(i);
+		}
+		else{
+			console.log(message,err);
+		}
+	}
+	queue(){
 		var _this=this;
-		if(typeof global.he.golos_queue !== 'undefined'){
-			for(var i in global.he.golos_queue){
-				var queue_execute=true;
-				if(typeof global.he.golos_queue[i].time !== 'undefined'){
-					if(global.he.golos_queue[i].time>new Date().getTime()){
+		if(typeof global.he.queue !== 'undefined'){
+			for(var i in global.he.queue){
+				let current_i=i;
+				let queue_execute=true;
+				if(typeof global.he.queue[current_i].time !== 'undefined'){
+					if(global.he.queue[current_i].time>new Date().getTime()){
 						queue_execute=false;
 					}
 				}
-				if(typeof global.he.golos_queue[i].times !== 'undefined'){
-					if(global.he.golos_queue[i].times>5){
-						_this.add_history('Removing action from queue #'+global.he.golos_queue[i].id+': '+global.he.golos_queue[i].action+', 5 times failed');
+				if(typeof global.he.queue[current_i].times !== 'undefined'){
+					if(global.he.queue[current_i].times>10){
+						_this.add_history('Removing action from queue #'+global.he.queue[current_i].id+': '+global.he.queue[current_i].action+', 10 times failed');
+						_this.queue_remove(current_i);
 					}
 				}
 				if(queue_execute){
-					var queue_item_remove=false;
-					if('vote'==global.he.golos_queue[i].action){
-						console.log('Golos queue action #'+global.he.golos_queue[i].id+': '+global.he.golos_queue[i].action+', by user: '+global.he.golos_queue[i].data.user_login);
-						global.he.golos_queue[i].time=new Date().getTime()+12000;
-						if(typeof global.he.golos_queue[i].times !== 'undefined'){
-							global.he.golos_queue[i].times++;
-						}
-						else{
-							global.he.golos_queue[i].times=1;
-						}
-						golos.broadcast.vote(global.he.golos_queue[i].data.user_posting_key,global.he.golos_queue[i].data.user_login,global.he.golos_queue[i].data.target_login,global.he.golos_queue[i].data.target_permlink,global.he.golos_queue[i].data.vote_weight,function(err, result){if(!err){_this.golos_queue_remove(i);}});
+					let queue_item_remove=false;
+					console.log('Queue action #'+global.he.queue[current_i].id+': '+global.he.queue[current_i].action+', by user: '+global.he.queue[current_i].data.user_login);
+					global.he.queue[current_i].time=new Date().getTime()+30000;
+					if(typeof global.he.queue[current_i].times !== 'undefined'){
+						global.he.queue[current_i].times++;
 					}
-					if('flag'==global.he.golos_queue[i].action){
-						console.log('Golos queue action #'+global.he.golos_queue[i].id+': '+global.he.golos_queue[i].action+', by user: '+global.he.golos_queue[i].data.user_login);
-						global.he.golos_queue[i].time=new Date().getTime()+12000;
-						if(typeof global.he.golos_queue[i].times !== 'undefined'){
-							global.he.golos_queue[i].times++;
-						}
-						else{
-							global.he.golos_queue[i].times=1;
-						}
-						golos.broadcast.vote(global.he.golos_queue[i].data.user_posting_key,global.he.golos_queue[i].data.user_login,global.he.golos_queue[i].data.target_login,global.he.golos_queue[i].data.target_permlink,-1*global.he.golos_queue[i].data.flag_weight,function(err, result){if(!err){_this.golos_queue_remove(i);}});
+					else{
+						global.he.queue[current_i].times=1;
 					}
-					if('witness_vote'==global.he.golos_queue[i].action){
-						console.log('Golos queue action #'+global.he.golos_queue[i].id+': '+global.he.golos_queue[i].action+', by user: '+global.he.golos_queue[i].data.user_login);
-						global.he.golos_queue[i].time=new Date().getTime()+12000;
-						if(typeof global.he.golos_queue[i].times !== 'undefined'){
-							global.he.golos_queue[i].times++;
+					if('custom'==global.he.queue[current_i].action){
+						if(typeof global.he.queue[current_i].data.user_active_key !== 'undefined'){
+							gate.broadcast.custom(global.he.queue[current_i].data.user_active_key,[global.he.queue[current_i].data.user_login],[],global.he.queue[current_i].data.name,global.he.queue[current_i].data.data,function(err, result){if(!err){_this.queue_remove(current_i);}else{_this.queue_resolve_error(current_i,err);}});
 						}
 						else{
-							global.he.golos_queue[i].times=1;
+							gate.broadcast.custom(global.he.queue[current_i].data.user_posting_key,[],[global.he.queue[current_i].data.user_login],global.he.queue[current_i].data.name,global.he.queue[current_i].data.data,function(err, result){if(!err){_this.queue_remove(current_i);}else{_this.queue_resolve_error(current_i,err);}});
 						}
-						golos.broadcast.accountWitnessVote(global.he.golos_queue[i].data.user_active_key,global.he.golos_queue[i].data.user_login,global.he.golos_queue[i].data.target_login,true,function(err, result){if(!err){_this.golos_queue_remove(i);}});
 					}
-					if('witness_unvote'==global.he.golos_queue[i].action){
-						console.log('Golos queue action #'+global.he.golos_queue[i].id+': '+global.he.golos_queue[i].action+', by user: '+global.he.golos_queue[i].data.user_login);
-						global.he.golos_queue[i].time=new Date().getTime()+12000;
-						if(typeof global.he.golos_queue[i].times !== 'undefined'){
-							global.he.golos_queue[i].times++;
-						}
-						else{
-							global.he.golos_queue[i].times=1;
-						}
-						golos.broadcast.accountWitnessVote(global.he.golos_queue[i].data.user_active_key,global.he.golos_queue[i].data.user_login,global.he.golos_queue[i].data.target_login,false,function(err, result){if(!err){_this.golos_queue_remove(i);}});
+					if('vote'==global.he.queue[current_i].action){
+						gate.broadcast.vote(global.he.queue[current_i].data.user_posting_key,global.he.queue[current_i].data.user_login,global.he.queue[current_i].data.target_login,global.he.queue[current_i].data.target_permlink,global.he.queue[current_i].data.vote_weight,function(err, result){if(!err){_this.queue_remove(current_i);}else{_this.queue_resolve_error(current_i,err);}});
+					}
+					if('witness_vote'==global.he.queue[current_i].action){
+						gate.broadcast.accountWitnessVote(global.he.queue[current_i].data.user_active_key,global.he.queue[current_i].data.user_login,global.he.queue[current_i].data.target_login,true,function(err, result){if(!err){_this.queue_remove(current_i);}});
+					}
+					if('witness_unvote'==global.he.queue[current_i].action){
+						gate.broadcast.accountWitnessVote(global.he.queue[current_i].data.user_active_key,global.he.queue[current_i].data.user_login,global.he.queue[current_i].data.target_login,false,function(err, result){if(!err){_this.queue_remove(current_i);}});
 					}
 				}
 			}
 			global.he.watch_manager.save_global=1;
 		}
-		setTimeout(function(){_this.golos_queue()},1000);
-	}
-	steem_queue(){
-		var _this=this;
-		if(typeof global.he.steem_queue !== 'undefined'){
-			for(var i in global.he.steem_queue){
-				var queue_execute=true;
-				if((typeof global.he.steem_queue[i].time !== 'undefined')){
-					if(global.he.steem_queue[i].time>new Date().getTime()){
-						queue_execute=false;
-					}
-				}
-				if(queue_execute){
-					var queue_item_remove=false;
-					if('vote'==global.he.steem_queue[i].action){
-						console.log('Steem queue action #'+global.he.steem_queue[i].id+': '+global.he.steem_queue[i].action+', by user: '+global.he.steem_queue[i].data.user_login);
-						steem.broadcast.vote(global.he.steem_queue[i].data.user_posting_key,global.he.steem_queue[i].data.user_login,global.he.steem_queue[i].data.target_login,global.he.steem_queue[i].data.target_permlink,global.he.steem_queue[i].data.vote_weight,function(err, result){});
-						queue_item_remove=true;
-					}
-					if('flag'==global.he.steem_queue[i].action){
-						console.log('Steem queue action #'+global.he.steem_queue[i].id+': '+global.he.steem_queue[i].action+', by user: '+global.he.steem_queue[i].data.user_login);
-						steem.broadcast.vote(global.he.steem_queue[i].data.user_posting_key,global.he.steem_queue[i].data.user_login,global.he.steem_queue[i].data.target_login,global.he.steem_queue[i].data.target_permlink,-1*global.he.steem_queue[i].data.flag_weight,function(err, result){});
-						queue_item_remove=true;
-					}
-					if('witness_vote'==global.he.steem_queue[i].action){
-						console.log('Steem queue action #'+global.he.steem_queue[i].id+': '+global.he.steem_queue[i].action+', by user: '+global.he.steem_queue[i].data.user_login);
-						steem.broadcast.accountWitnessVote(global.he.steem_queue[i].data.user_active_key,global.he.steem_queue[i].data.user_login,global.he.steem_queue[i].data.target_login,true,function(err, result){});
-						queue_item_remove=true;
-					}
-					if('witness_unvote'==global.he.steem_queue[i].action){
-						console.log('Steem queue action #'+global.he.steem_queue[i].id+': '+global.he.steem_queue[i].action+', by user: '+global.he.steem_queue[i].data.user_login);
-						steem.broadcast.accountWitnessVote(global.he.steem_queue[i].data.user_active_key,global.he.steem_queue[i].data.user_login,global.he.steem_queue[i].data.target_login,false,function(err, result){});
-						queue_item_remove=true;
-					}
-					if(queue_item_remove){
-						global.he.steem_queue.splice(i,1);
-					}
-				}
-			}
-			global.he.watch_manager.save_global=1;
-		}
-		setTimeout(function(){_this.steem_queue()},1000);
+		setTimeout(function(){_this.queue()},1000);
 	}
 }

@@ -1,7 +1,7 @@
 {
 	"name": "hiddenengine",
-	"description": "Hidden Engine for light node.js sites",
-	"version": "0.0.5",
+	"description": "Hidden Engine for light node.js VIZ tools",
+	"version": "0.1.0",
 	"main": "index.js",
 	"author": "Anatoly Piskunov (https://github.com/On1x)",
 	"license": "MIT",
@@ -18,11 +18,8 @@
 	"dependencies": {
 		"async-limiter": "^1.0.0",
 		"body-parser": "^1.18.0",
-		"crypto": "^1.0.1",
 		"express": "^4.15.4",
-		"golos-js": "^0.5.21",
-		"postinstall-build": "^5.0.1",
-		"steem": "^0.6.3",
+		"viz-world-js": "^0.9.14",
 		"zlib": "^1.0.5"
 	},
 	"contributors": [
