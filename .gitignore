@@ -8,6 +8,7 @@ yarn-error.log*
 
 # app data
 global.json
+global.json.backup
 ssl/
 uploads/
 
